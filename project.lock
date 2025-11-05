@@ -1,0 +1,403 @@
+process-datasets:
+  cmd: python -m weasel run process-datasets
+  script:
+    - tar -xzvf assets/tlunified_ner.tar.gz -C corpus
+  deps:
+    - path: assets/tlunified_ner.tar.gz
+      md5: 3c64eff1d61f781486a3b60f27baa7df
+  outs:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+baseline:
+  cmd: python -m weasel run baseline
+  script:
+    - python -c "import os; os.makedirs('training/xlm-roberta', exist_ok=True)"
+    - python -m spacy train configs/default.cfg --nlp.lang tl --output training/py311/
+      --paths.train corpus/train.spacy --paths.dev corpus/dev.spacy --gpu-id 0
+    - python -m spacy evaluate training/baseline/model-best/ corpus/test.spacy --output
+      metrics/baseline-test.json --gpu-id 0
+    - python -m spacy evaluate training/baseline/model-best/ corpus/dev.spacy --output
+      metrics/baseline-dev.json --gpu-id 0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/baseline/model-best/
+      md5: 31a1b69e177695d4c195841fce8da4f3
+    - path: metrics/baseline-dev.json
+      md5: 13e15acb3123828cace51bf806821524
+    - path: metrics/baseline-test.json
+      md5: 89b1e94f8ac5118c158b048588e9ca73
+static-vectors:
+  cmd: python -m weasel run static-vectors
+  script:
+    - python -m spacy evaluate tl_calamancy_lg corpus/test.spacy --output metrics/static-vectors-test.json
+      --gpu-id 0
+    - python -m spacy evaluate tl_calamancy_lg corpus/dev.spacy --output metrics/static-vectors-dev.json
+      --gpu-id 0
+  deps:
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+  outs:
+    - path: metrics/static-vectors-test.json
+      md5: ec87772e61ab3836e9dd135cf3f585de
+    - path: metrics/static-vectors-dev.json
+      md5: 0a16c3824b0a3988a4f24d4cf03dc505
+trf-monolingual:
+  cmd: python -m weasel run trf-monolingual
+  script:
+    - python -m spacy evaluate tl_calamancy_trf corpus/test.spacy --output metrics/trf-monolingual-test.json
+      --gpu-id 0
+    - python -m spacy evaluate tl_calamancy_trf corpus/dev.spacy --output metrics/trf-monolingual-dev.json
+      --gpu-id 0
+  deps:
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+  outs:
+    - path: metrics/trf-monolingual-test.json
+      md5: 284b2fef2a587b136efaca30bfdcc6db
+    - path: metrics/trf-monolingual-dev.json
+      md5: ad6df80dd5031b58d0fd989a0906481a
+trf-multilingual:
+  cmd: python -m weasel run trf-multilingual
+  script:
+    - python -c "import os; os.makedirs('training/xlm-roberta', exist_ok=True)"
+    - python -m spacy train configs/transformer.cfg --nlp.lang tl --output training/xlm-roberta/
+      --paths.train corpus/train.spacy --paths.dev corpus/dev.spacy --components.transformer.model.name
+      xlm-roberta-base --gpu-id 0
+    - python -c "import os; os.makedirs('training/mbert', exist_ok=True)"
+    - python -m spacy train configs/transformer.cfg --nlp.lang tl --output training/mbert/
+      --paths.train corpus/train.spacy --paths.dev corpus/dev.spacy --components.transformer.model.name
+      bert-base-multilingual-uncased --gpu-id 0
+    - python -m spacy evaluate training/xlm-roberta/model-best/ corpus/test.spacy
+      --output metrics/trf-multilingual-xlm-test.json --gpu-id 0
+    - python -m spacy evaluate training/xlm-roberta/model-best/ corpus/dev.spacy --output
+      metrics/trf-multilingual-xlm-dev.json --gpu-id 0
+    - python -m spacy evaluate training/mbert/model-best/ corpus/test.spacy --output
+      metrics/trf-multilingual-mbert-test.json --gpu-id 0
+    - python -m spacy evaluate training/mbert/model-best/ corpus/dev.spacy --output
+      metrics/trf-multilingual-mbert-dev.json --gpu-id 0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/xlm-roberta/model-best/
+      md5: bc9f8478b3bae0e736fb476709d9d126
+    - path: training/mbert/model-best/
+      md5: 92aae6266ba5d6ebf1d5b2936f32d747
+    - path: metrics/trf-multilingual-xlm-test.json
+      md5: aaf84689c7e9b6c1ffc377aae2af94f6
+    - path: metrics/trf-multilingual-xlm-dev.json
+      md5: dcd9a14e9474bc5763e3625018732f20
+    - path: metrics/trf-multilingual-mbert-test.json
+      md5: 8e5be434814cd6a08b98563882111c73
+    - path: metrics/trf-multilingual-mbert-dev.json
+      md5: 55ec5635df2d2c7511728a48e054fe0a
+install-models:
+  cmd: python -m weasel run install-models
+  script:
+    - pip install tl_calamancy_lg-0.2.0-py3-none-any.whl
+    - pip install tl_calamancy_trf-0.2.0-py3-none-any.whl
+  deps: []
+  outs: []
+baseline-crf:
+  cmd: python -m weasel run baseline-crf
+  script:
+    - python -c "import os; os.makedirs('training/baseline-crf', exist_ok=True)"
+    - python -m spacy evaluate training/baseline_crf/model-best/ corpus/dev.spacy
+      --output metrics/baseline-crf-dev.json --code tok2vec_pipeline.py --gpu-id 0
+    - python -m spacy evaluate training/baseline_crf/model-best/ corpus/test.spacy
+      --output metrics/baseline-crf-test.json --code tok2vec_pipeline.py --gpu-id
+      0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/baseline-crf/
+      md5: null
+    - path: metrics/baseline-crf-dev.json
+      md5: 19c300a3c7eeeb63eaeb911f0d56b525
+    - path: metrics/baseline-crf-test.json
+      md5: 2c543633c5b2f702b4bec8966d7e4d07
+static_vectors-crf:
+  cmd: python -m weasel run static_vectors-crf
+  script:
+    - python -c "import os; os.makedirs('training/static_vectors-crf', exist_ok=True)"
+    - python -m spacy evaluate training/static_vectors-crf/model-best/ corpus/dev.spacy
+      --output metrics/static_vectors-crf-dev.json --code tok2vec_pipeline.py --gpu-id
+      0
+    - python -m spacy evaluate training/static_vectors-crf/model-best/ corpus/test.spacy
+      --output metrics/static_vectors-crf-test.json --code tok2vec_pipeline.py --gpu-id
+      0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/static_vectors-crf/
+      md5: 7c6d9d4a31253401f3cf9ff2ee9d91b0
+    - path: metrics/static_vectors-crf-dev.json
+      md5: 37f719bd9584198c13f387857bfb06a7
+    - path: metrics/static_vectors-crf-test.json
+      md5: 2fa759e6546dceb5e2790cf5a20cf778
+static_vectors-bilstm:
+  cmd: python -m weasel run static_vectors-bilstm
+  script:
+    - python -c "import os; os.makedirs('training/static_vectors-bilstm', exist_ok=True)"
+    - python -m spacy evaluate training/static_vectors-bilstm/model-best/ corpus/dev.spacy
+      --output metrics/static_vectors-bilstm-dev.json --code tok2vec_pipeline.py --gpu-id
+      0
+    - python -m spacy evaluate training/static_vectors-bilstm/model-best/ corpus/test.spacy
+      --output metrics/static_vectors-bilstm-test.json --code tok2vec_pipeline.py
+      --gpu-id 0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/static_vectors-bilstm/
+      md5: 92dbe221d77b32caa578a5f2ca38a38d
+    - path: metrics/static_vectors-bilstm-dev.json
+      md5: c6d982d58152d9202256f84da34f88c2
+    - path: metrics/static_vectors-bilstm-test.json
+      md5: 5cbefb0fd4c1ac6380d4cb7712c35b59
+baseline-bilstm:
+  cmd: python -m weasel run baseline-bilstm
+  script:
+    - python -c "import os; os.makedirs('training/baseline-bilstm', exist_ok=True)"
+    - python -m spacy evaluate training/baseline-bilstm/model-best/ corpus/dev.spacy
+      --output metrics/baseline-bilstm-dev.json --code tok2vec_pipeline.py --gpu-id
+      0
+    - python -m spacy evaluate training/baseline-bilstm/model-best/ corpus/test.spacy
+      --output metrics/baseline-bilstm-test.json --code tok2vec_pipeline.py --gpu-id
+      0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/baseline-bilstm/
+      md5: 96cec7070668283852f87331a6661a17
+    - path: metrics/baseline-bilstm-dev.json
+      md5: f4c6ce39359861569f8a2d398a538fa8
+    - path: metrics/baseline-bilstm-test.json
+      md5: 9c07bb8727891f905562dfe936bd5807
+baseline-bilstm-crf:
+  cmd: python -m weasel run baseline-bilstm-crf
+  script:
+    - python -c "import os; os.makedirs('training/baseline-bilstm-crf', exist_ok=True)"
+    - python -m spacy evaluate training/baseline-bilstm-crf/model-best/ corpus/dev.spacy
+      --output metrics/baseline-bilstm-crf-dev.json --code tok2vec_pipeline.py --gpu-id
+      0
+    - python -m spacy evaluate training/baseline-bilstm-crf/model-best/ corpus/test.spacy
+      --output metrics/baseline-bilstm-crf-test.json --code tok2vec_pipeline.py --gpu-id
+      0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/baseline-bilstm-crf/
+      md5: b4d6b38ee6a2665edf272de56fdafccc
+    - path: metrics/baseline-bilstm-crf-dev.json
+      md5: d45db288126566b0f318f61f0c171f0e
+    - path: metrics/baseline-bilstm-crf-test.json
+      md5: e6af7b10228ed224d4852cd3e31832ff
+static_vectors-bilstm-crf:
+  cmd: python -m weasel run static_vectors-bilstm-crf
+  script:
+    - python -c "import os; os.makedirs('training/static_vectors-bilstm-crf', exist_ok=True)"
+    - python -m spacy evaluate training/static_vectors-bilstm-crf/model-best/ corpus/dev.spacy
+      --output metrics/static_vectors-bilstm-crf-dev.json --code tok2vec_pipeline.py
+      --gpu-id 0
+    - python -m spacy evaluate training/static_vectors-bilstm-crf/model-best/ corpus/test.spacy
+      --output metrics/static_vectors-bilstm-crf-test.json --code tok2vec_pipeline.py
+      --gpu-id 0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/static_vectors-bilstm-crf/
+      md5: 9bbb142e0f3af5a43b7f0490879ee3fd
+    - path: metrics/static_vectors-bilstm-crf-dev.json
+      md5: 70b7f06ac6b76cc68d4ef1a85c9ec535
+    - path: metrics/static_vectors-bilstm-crf-test.json
+      md5: 77c7169890e24870633beada0c3451a7
+xlm_roberta-bilstm:
+  cmd: python -m weasel run xlm_roberta-bilstm
+  script:
+    - python -c "import os; os.makedirs('training/xlm_roberta-bilstm', exist_ok=True)"
+    - python -m spacy evaluate training/xlm_roberta-bilstm/model-best/ corpus/dev.spacy
+      --output metrics/xlm_roberta-bilstm-dev.json --code transformer_components.py
+      --gpu-id 0
+    - python -m spacy evaluate training/xlm_roberta-bilstm/model-best/ corpus/test.spacy
+      --output metrics/xlm_roberta-bilstm-test.json --code transformer_components.py
+      --gpu-id 0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/xlm_roberta-bilstm/
+      md5: 6803aec46bf8a32a47f88321f84e410f
+    - path: metrics/xlm_roberta-bilstm-dev.json
+      md5: d23d6ea0122bac1af6bfba7d68760942
+    - path: metrics/xlm_roberta-bilstm-test.json
+      md5: 33093eb93ceef63c8313d2984a829040
+xlm_roberta-crf:
+  cmd: python -m weasel run xlm_roberta-crf
+  script:
+    - python -c "import os; os.makedirs('training/xlm_roberta-crf', exist_ok=True)"
+    - python -m spacy evaluate training/xlm_roberta-crf/model-best/ corpus/dev.spacy
+      --output metrics/xlm_roberta-crf-dev.json --code transformer_components.py --gpu-id
+      0
+    - python -m spacy evaluate training/xlm_roberta-crf/model-best/ corpus/test.spacy
+      --output metrics/xlm_roberta-crf-test.json --code transformer_components.py
+      --gpu-id 0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/xlm_roberta-crf/
+      md5: b556438e5204392f37509fcb3ce79a6e
+    - path: metrics/xlm_roberta-crf-dev.json
+      md5: d387c7d6a9feaddb45388f6b086b628c
+    - path: metrics/xlm_roberta-crf-test.json
+      md5: 01db4173ee21775bda7f6ddafd468384
+xlm_roberta-bilstm-crf:
+  cmd: python -m weasel run xlm_roberta-bilstm-crf
+  script:
+    - python -c "import os; os.makedirs('training/xlm_roberta-bilstm-crf', exist_ok=True)"
+    - python -m spacy evaluate training/xlm_roberta-bilstm-crf/model-best/ corpus/dev.spacy
+      --output metrics/xlm_roberta-bilstm-crf-dev.json --code transformer_components.py
+      --gpu-id 0
+    - python -m spacy evaluate training/xlm_roberta-bilstm-crf/model-best/ corpus/test.spacy
+      --output metrics/xlm_roberta-bilstm-crf-test.json --code transformer_components.py
+      --gpu-id 0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/xlm_roberta-bilstm-crf/
+      md5: f8e7b42741fd2b63d9296411df7e8f2c
+    - path: metrics/xlm_roberta-bilstm-crf-dev.json
+      md5: c9867303cda8a0d80a4e9ac9ecc90016
+    - path: metrics/xlm_roberta-bilstm-crf-test.json
+      md5: 09fe3c575b82f1d61570c0960813f8c6
+mbert-bilstm-crf:
+  cmd: python -m weasel run mbert-bilstm-crf
+  script:
+    - python -c "import os; os.makedirs('training/mbert-bilstm-crf', exist_ok=True)"
+    - python -m spacy evaluate training/mbert-bilstm-crf/model-best/ corpus/dev.spacy
+      --output metrics/mbert-bilstm-crf-dev.json --code transformer_components.py
+      --gpu-id 0
+    - python -m spacy evaluate training/mbert-bilstm-crf/model-best/ corpus/test.spacy
+      --output metrics/mbert-bilstm-crf-test.json --code transformer_components.py
+      --gpu-id 0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/mbert-bilstm-crf/
+      md5: e310b38c04a890a9532a37a4c8ab14f4
+    - path: metrics/mbert-bilstm-crf-dev.json
+      md5: 360a6a648f18fdbceb0dea8bfc39a81b
+    - path: metrics/mbert-bilstm-crf-test.json
+      md5: 04667fbf3d0de01bfea9dfa9e7deb786
+mbert-bilstm:
+  cmd: python -m weasel run mbert-bilstm
+  script:
+    - python -c "import os; os.makedirs('training/mbert-bilstm', exist_ok=True)"
+    - python -m spacy evaluate training/mbert-bilstm/model-best/ corpus/dev.spacy
+      --output metrics/mbert-bilstm-dev.json --code transformer_components.py --gpu-id
+      0
+    - python -m spacy evaluate training/mbert-bilstm/model-best/ corpus/test.spacy
+      --output metrics/mbert-bilstm-test.json --code transformer_components.py --gpu-id
+      0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/mbert-bilstm/
+      md5: 6777392dbe75084139be9df5cfbde800
+    - path: metrics/mbert-bilstm-dev.json
+      md5: bbfe839f947857a5cacc025efb888064
+    - path: metrics/mbert-bilstm-test.json
+      md5: 28ebe9e7ffd8a99909a9f28f23532ae4
+mbert-crf:
+  cmd: python -m weasel run mbert-crf
+  script:
+    - python -c "import os; os.makedirs('training/mbert-crf', exist_ok=True)"
+    - python -m spacy evaluate training/mbert-crf/model-best/ corpus/dev.spacy --output
+      metrics/mbert-crf-dev.json --code transformer_components.py --gpu-id 0
+    - python -m spacy evaluate training/mbert-crf/model-best/ corpus/test.spacy --output
+      metrics/mbert-crf-test.json --code transformer_components.py --gpu-id 0
+  deps:
+    - path: corpus/train.spacy
+      md5: 6483e84e70c3bed847136cac3e3f12ae
+    - path: corpus/dev.spacy
+      md5: 51b5c79d2996ec0f3e6ae4ca79578a57
+    - path: corpus/test.spacy
+      md5: 93839b6a5e246d300311aab268625f4b
+  outs:
+    - path: training/mbert-crf/
+      md5: 9b2774169c34bfec11f9c1d4e5f1a868
+    - path: metrics/mbert-crf-dev.json
+      md5: 53b88af30e4cc685e690ad9b49422dff
+    - path: metrics/mbert-crf-test.json
+      md5: ee4f4dbcf68c98491170b2525df9eb38

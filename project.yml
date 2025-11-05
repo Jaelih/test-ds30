@@ -1,0 +1,690 @@
+title: "DS30 Filipino Named Entity Recognition Model for News Reports Using BiLSTM + CRF Architecture"
+description: |
+  This project modifies Miranda's (2023) calamanCy framework to train a BiLSTM-CRF model for named entity recognition (NER) on Filipino news reports.
+  You can use this project to reproduce the experiments in the write-up.
+  First, you need to install the required dependencies:
+
+  ```
+  pip install -r requirements.txt
+  ```
+
+  This step installs [spaCy](https://spacy.io) that allows you to access its command-line interface.
+  Now run the set-up commands:
+
+  ```
+  python -m spacy project assets
+  python -m spacy project run setup
+  ```
+
+  > **Note**
+  > Some commands may take some time to run.
+  > This is especially true for the transformer training and evaluation pipelines.
+  > I highly recommend running these on at least a T4 GPU (available on Colab Pro+) for faster runtimes.
+
+  The Python scripts in the `scripts/` directory are supposed to be standalone command-line applications.
+  You should be able to use them independently from one another.
+
+directories:
+  - "assets"
+  - "configs"
+  - "corpus"
+  - "training"
+  - "metrics"
+
+vars:
+  seed: 0
+  gpu_id: 0
+  lang: "tl"
+  vectors: "vectors/fasttext-tl-300"
+
+assets:
+  - dest: assets/tlunified_ner.tar.gz
+    description: "Contains the annotated TLUnified corpora in spaCy format with PER, ORG, LOC as entity labels (named entity recognition). Annotated by three annotators with IAA (Cohen's Kappa) of 0.78. Corpora was based from *Improving Large-scale Language Models and Resources for Filipino* by Cruz and Cheng (2021)."
+    url: "https://storage.googleapis.com/ljvmiranda/calamanCy/tl_tlunified_gold/v1.0/corpus.tar.gz"
+
+workflows:
+  setup:
+    - "install-models"
+    - "process-datasets"
+  benchmark:
+    - "baseline"
+    - "static-vectors"
+    - "trf-monolingual"
+    - "trf-multilingual"
+
+commands:
+  - name: "install-models"
+    help: "Install models in the spaCy workspace"
+    script:
+      - python -c "import urllib.request; urllib.request.urlretrieve('https://huggingface.co/ljvmiranda921/tl_calamancy_lg/resolve/main/tl_calamancy_lg-any-py3-none-any.whl', 'tl_calamancy_lg-0.2.0-py3-none-any.whl')"
+      - python -c "import urllib.request; urllib.request.urlretrieve('https://huggingface.co/ljvmiranda921/tl_calamancy_trf/resolve/main/tl_calamancy_trf-any-py3-none-any.whl', 'tl_calamancy_trf-0.2.0-py3-none-any.whl')"
+      - pip install tl_calamancy_lg-0.2.0-py3-none-any.whl
+      - pip install tl_calamancy_trf-0.2.0-py3-none-any.whl
+
+  - name: "process-datasets"
+    help: "Process the datasets and convert them into spaCy format"
+    script:
+      - tar -xzvf assets/tlunified_ner.tar.gz -C corpus
+    deps:
+      - assets/tlunified_ner.tar.gz
+    outputs:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+
+  - name: "analyze"
+    help: "Get dataset statistics for TLUnified-NER"
+    script:
+      - python -m scripts.convert_to_spans corpus/train.spacy corpus/train_sc.spacy
+      - python -m scripts.convert_to_spans corpus/dev.spacy corpus/dev_sc.spacy
+      - python -m scripts.convert_to_spans corpus/test.spacy corpus/test_sc.spacy
+      - >-
+        python -m spacy debug data configs/default.cfg
+        --paths.train corpus/train_sc.spacy
+        --paths.dev corpus/dev_sc.spacy
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+
+  - name: "plot"
+    help: "Create plots for the report"
+    script:
+      - python -m scripts.plot_iaa ../figures/iaa.pdf
+      - python -m scripts.plot_confusion_matrix corpus/dev.spacy training/baseline/model-best/ ../figures/confusion.pdf --gpu-id ${vars.gpu_id} --normalize
+    deps:
+      - training/baseline/model-best/
+
+  - name: "baseline"
+    help: "Train a transition-based parser without any embeddings or static vectors"
+    script:
+      - python -c "import os; os.makedirs('training/xlm-roberta', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/default.cfg
+        --nlp.lang ${vars.lang}
+        --output training/baseline/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --gpu-id ${vars.gpu_id}
+        --code standalone_ner_pipeline.py
+      - >-
+        python -m spacy evaluate
+        training/baseline/model-best/
+        corpus/test.spacy
+        --output metrics/baseline-test.json
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/baseline/model-best/
+        corpus/dev.spacy
+        --output metrics/baseline-dev.json
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/baseline/model-best/
+      - metrics/baseline-dev.json
+      - metrics/baseline-test.json
+
+  - name: "static-vectors"
+    help: "Use the trained calamanCy pipeline to evaluate the dev and test set"
+    script:
+      - >-
+        python -m spacy evaluate
+        tl_calamancy_lg
+        corpus/test.spacy
+        --output metrics/static-vectors-test.json
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        tl_calamancy_lg
+        corpus/dev.spacy
+        --output metrics/static-vectors-dev.json
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/test.spacy
+      - corpus/dev.spacy
+    outputs:
+      - metrics/static-vectors-test.json
+      - metrics/static-vectors-dev.json
+
+  - name: "trf-monolingual"
+    help: "Use the trained transformer-based calamanCy pipeline to evaluate the dev and test set"
+    script:
+      - >-
+        python -m spacy evaluate
+        tl_calamancy_trf
+        corpus/test.spacy
+        --output metrics/trf-monolingual-test.json
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        tl_calamancy_trf
+        corpus/dev.spacy
+        --output metrics/trf-monolingual-dev.json
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/test.spacy
+      - corpus/dev.spacy
+    outputs:
+      - metrics/trf-monolingual-test.json
+      - metrics/trf-monolingual-dev.json
+
+  - name: "trf-multilingual"
+    help: "Train and evaluate multilingual model and evaluate the dev and test sets"
+    script:
+      - python -c "import os; os.makedirs('training/xlm-roberta', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/transformer.cfg
+        --nlp.lang ${vars.lang}
+        --output training/xlm-roberta/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --components.transformer.model.name xlm-roberta-base
+        --gpu-id ${vars.gpu_id}
+      - python -c "import os; os.makedirs('training/mbert', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/transformer.cfg
+        --nlp.lang ${vars.lang}
+        --output training/mbert/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --components.transformer.model.name ```bert-base-multilingual-uncased```
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/xlm-roberta/model-best/
+        corpus/test.spacy
+        --output metrics/trf-multilingual-xlm-test.json
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/xlm-roberta/model-best/
+        corpus/dev.spacy
+        --output metrics/trf-multilingual-xlm-dev.json
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/mbert/model-best/
+        corpus/test.spacy
+        --output metrics/trf-multilingual-mbert-test.json
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/mbert/model-best/
+        corpus/dev.spacy
+        --output metrics/trf-multilingual-mbert-dev.json
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/xlm-roberta/model-best/
+      - training/mbert/model-best/
+      - metrics/trf-multilingual-xlm-test.json
+      - metrics/trf-multilingual-xlm-dev.json
+      - metrics/trf-multilingual-mbert-test.json
+      - metrics/trf-multilingual-mbert-dev.json
+
+#################################################################
+#                          OUR STUDY                            #
+#################################################################
+  - name: "baseline-bilstm-crf"
+    help: "Train a BiLSTM-CRF NER from scratch"
+    script:
+      - python -c "import os; os.makedirs('training/baseline-bilstm-crf', exist_ok=True)"
+
+      - >-
+        python -m spacy evaluate
+        training/baseline-bilstm-crf/model-best/
+        corpus/dev.spacy
+        --output metrics/baseline-bilstm-crf-dev.json
+        --code tok2vec_pipeline.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/baseline-bilstm-crf/model-best/
+        corpus/test.spacy
+        --output metrics/baseline-bilstm-crf-test.json
+        --code tok2vec_pipeline.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/baseline-bilstm-crf/
+      - metrics/baseline-bilstm-crf-dev.json
+      - metrics/baseline-bilstm-crf-test.json
+
+
+  - name: "baseline-bilstm"
+    help: "Train a BiLSTM NER from scratch"
+    script:
+      - python -c "import os; os.makedirs('training/baseline-bilstm', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/tok2vec-bilstm.cfg
+        --nlp.lang ${vars.lang}
+        --output training/baseline-bilstm/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --gpu-id ${vars.gpu_id}
+        --code tok2vec_pipeline.py
+      - >-
+        python -m spacy evaluate
+        training/baseline-bilstm/model-best/
+        corpus/dev.spacy
+        --output metrics/baseline-bilstm-dev.json
+        --code tok2vec_pipeline.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/baseline-bilstm/model-best/
+        corpus/test.spacy
+        --output metrics/baseline-bilstm-test.json
+        --code tok2vec_pipeline.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/baseline-bilstm/
+      - metrics/baseline-bilstm-dev.json
+      - metrics/baseline-bilstm-test.json
+
+  - name: "baseline-crf"
+    help: "Train a CRF NER from scratch"
+    script:
+      - python -c "import os; os.makedirs('training/baseline-crf', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/tok2vec-crf.cfg
+        --nlp.lang ${vars.lang}
+        --output training/baseline-crf/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --gpu-id ${vars.gpu_id}
+        --code tok2vec_pipeline.py
+      - >-
+        python -m spacy evaluate
+        training/baseline_crf/model-best/
+        corpus/dev.spacy
+        --output metrics/baseline-crf-dev.json
+        --code tok2vec_pipeline.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/baseline-crf/model-best/
+        corpus/test.spacy
+        --output metrics/baseline-crf-test.json
+        --code tok2vec_pipeline.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/baseline-crf/
+      - metrics/baseline-crf-dev.json
+      - metrics/baseline-crf-test.json
+
+  - name: "static_vectors-bilstm-crf"
+    help: "Train a BiLSTM-CRF NER with static word vectors"
+    script:
+      - python -c "import os; os.makedirs('training/static_vectors-bilstm-crf', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/tok2vec-bilstm-crf.cfg
+        --nlp.lang ${vars.lang}
+        --output training/static_vectors-bilstm-crf/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --gpu-id ${vars.gpu_id}
+        --paths.vectors ${vars.vectors}
+        --code tok2vec_pipeline.py
+      - >-
+        python -m spacy evaluate
+        training/static_vectors-bilstm-crf/model-best/
+        corpus/dev.spacy
+        --output metrics/static_vectors-bilstm-crf-dev.json
+        --code tok2vec_pipeline.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/static_vectors-bilstm-crf/model-best/
+        corpus/test.spacy
+        --output metrics/static_vectors-bilstm-crf-test.json
+        --code tok2vec_pipeline.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/static_vectors-bilstm-crf/
+      - metrics/static_vectors-bilstm-crf-dev.json
+      - metrics/static_vectors-bilstm-crf-test.json
+
+  - name: "static_vectors-bilstm"
+    help: "Train a BiLSTM NER with static word vectors"
+    script:
+      - python -c "import os; os.makedirs('training/static_vectors-bilstm', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/tok2vec-bilstm.cfg
+        --nlp.lang ${vars.lang}
+        --output training/static_vectors-bilstm/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --gpu-id ${vars.gpu_id}
+        --paths.vectors ${vars.vectors}
+        --code tok2vec_pipeline.py
+      - >-
+        python -m spacy evaluate
+        training/static_vectors-bilstm/model-best/
+        corpus/dev.spacy
+        --output metrics/static_vectors-bilstm-dev.json
+        --code tok2vec_pipeline.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/static_vectors-bilstm/model-best/
+        corpus/test.spacy
+        --output metrics/static_vectors-bilstm-test.json
+        --code tok2vec_pipeline.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/static_vectors-bilstm/
+      - metrics/static_vectors-bilstm-dev.json
+      - metrics/static_vectors-bilstm-test.json
+
+  - name: "static_vectors-crf"
+    help: "Train a CRF NER with static word vectors"
+    script:
+      - python -c "import os; os.makedirs('training/static_vectors-crf', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/tok2vec-crf.cfg
+        --nlp.lang ${vars.lang}
+        --output training/static_vectors-crf/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --gpu-id ${vars.gpu_id}
+        --paths.vectors ${vars.vectors}
+        --code tok2vec_pipeline.py
+      - >-
+        python -m spacy evaluate
+        training/static_vectors-crf/model-best/
+        corpus/dev.spacy
+        --output metrics/static_vectors-crf-dev.json
+        --code tok2vec_pipeline.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/static_vectors-crf/model-best/
+        corpus/test.spacy
+        --output metrics/static_vectors-crf-test.json
+        --code tok2vec_pipeline.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/static_vectors-crf/
+      - metrics/static_vectors-crf-dev.json
+      - metrics/static_vectors-crf-test.json
+
+  - name: "xlm_roberta-bilstm-crf"
+    help: "Train a BiLSTM-CRF NER with XLM-RoBERTa embeddings"
+    script:
+      - python -c "import os; os.makedirs('training/xlm_roberta-bilstm-crf', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/trf-multilingual-bilstm-crf.cfg
+        --nlp.lang ${vars.lang}
+        --components.transformer.model.name xlm-roberta-base
+        --output training/xlm_roberta-bilstm-crf/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --gpu-id ${vars.gpu_id}
+        --code transformer_components.py
+      - >-
+        python -m spacy evaluate
+        training/xlm_roberta-bilstm-crf/model-best/
+        corpus/dev.spacy
+        --output metrics/xlm_roberta-bilstm-crf-dev.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/xlm_roberta-bilstm-crf/model-best/
+        corpus/test.spacy
+        --output metrics/xlm_roberta-bilstm-crf-test.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/xlm_roberta-bilstm-crf/
+      - metrics/xlm_roberta-bilstm-crf-dev.json
+      - metrics/xlm_roberta-bilstm-crf-test.json
+
+  - name: "xlm_roberta-bilstm"
+    help: "Train a BiLSTM NER with XLM-RoBERTa embeddings"
+    script:
+      - python -c "import os; os.makedirs('training/xlm_roberta-bilstm', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/trf-multilingual-bilstm.cfg
+        --nlp.lang ${vars.lang}
+        --components.transformer.model.name xlm-roberta-base
+        --output training/xlm_roberta-bilstm/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --gpu-id ${vars.gpu_id}
+        --code transformer_components.py
+      - >-
+        python -m spacy evaluate
+        training/xlm_roberta-bilstm/model-best/
+        corpus/dev.spacy
+        --output metrics/xlm_roberta-bilstm-dev.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/xlm_roberta-bilstm/model-best/
+        corpus/test.spacy
+        --output metrics/xlm_roberta-bilstm-test.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/xlm_roberta-bilstm/
+      - metrics/xlm_roberta-bilstm-dev.json
+      - metrics/xlm_roberta-bilstm-test.json
+
+  - name: "xlm_roberta-crf"
+    help: "Train a CRF NER with XLM-RoBERTa embeddings"
+    script:
+      - python -c "import os; os.makedirs('training/xlm_roberta-crf', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/trf-multilingual-crf.cfg
+        --nlp.lang ${vars.lang}
+        --components.transformer.model.name xlm-roberta-base
+        --output training/xlm_roberta-crf/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --gpu-id ${vars.gpu_id}
+        --code transformer_components.py
+      - >-
+        python -m spacy evaluate
+        training/xlm_roberta-crf/model-best/
+        corpus/dev.spacy
+        --output metrics/xlm_roberta-crf-dev.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/xlm_roberta-crf/model-best/
+        corpus/test.spacy
+        --output metrics/xlm_roberta-crf-test.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/xlm_roberta-crf/
+      - metrics/xlm_roberta-crf-dev.json
+      - metrics/xlm_roberta-crf-test.json
+
+# 
+  - name: "mbert-bilstm-crf"
+    help: "Train a BiLSTM-CRF NER with bert-base-multilingual-cased embeddings"
+    script:
+      - python -c "import os; os.makedirs('training/mbert-bilstm-crf', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/trf-multilingual-bilstm-crf.cfg
+        --nlp.lang ${vars.lang}
+        --components.transformer.model.name bert-base-multilingual-cased
+        --output training/mbert-bilstm-crf/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --gpu-id ${vars.gpu_id}
+        --code transformer_components.py
+      - >-
+        python -m spacy evaluate
+        training/mbert-bilstm-crf/model-best/
+        corpus/dev.spacy
+        --output metrics/mbert-bilstm-crf-dev.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/mbert-bilstm-crf/model-best/
+        corpus/test.spacy
+        --output metrics/mbert-bilstm-crf-test.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/mbert-bilstm-crf/
+      - metrics/mbert-bilstm-crf-dev.json
+      - metrics/mbert-bilstm-crf-test.json
+
+  - name: "mbert-bilstm"
+    help: "Train a BiLSTM NER with bert-base-multilingual-cased embeddings"
+    script:
+      - python -c "import os; os.makedirs('training/mbert-bilstm', exist_ok=True)"
+      - >-
+        python -m spacy train
+        configs/trf-multilingual-bilstm.cfg
+        --nlp.lang ${vars.lang}
+        --components.transformer.model.name bert-base-multilingual-cased
+        --output training/mbert-bilstm/
+        --paths.train corpus/train.spacy
+        --paths.dev corpus/dev.spacy
+        --gpu-id ${vars.gpu_id}
+        --code transformer_components.py
+      - >-
+        python -m spacy evaluate
+        training/mbert-bilstm/model-best/
+        corpus/dev.spacy
+        --output metrics/mbert-bilstm-dev.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/mbert-bilstm/model-best/
+        corpus/test.spacy
+        --output metrics/mbert-bilstm-test.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/mbert-bilstm/
+      - metrics/mbert-bilstm-dev.json
+      - metrics/mbert-bilstm-test.json
+
+  - name: "mbert-crf"
+    help: "Train a CRF NER with bert-base-multilingual-cased embeddings"
+    script:
+      - python -c "import os; os.makedirs('training/mbert-crf', exist_ok=True)"
+
+      - >-
+        python -m spacy evaluate
+        training/mbert-crf/model-best/
+        corpus/dev.spacy
+        --output metrics/mbert-crf-dev.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/mbert-crf/model-best/
+        corpus/test.spacy
+        --output metrics/mbert-crf-test.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/mbert-crf/
+      - metrics/mbert-crf-dev.json
+      - metrics/mbert-crf-test.json
+
+  - name: "mbert-crf"
+    help: "Train a CRF NER with bert-base-multilingual-cased embeddings"
+    script:
+      - python -c "import os; os.makedirs('training/mbert-crf', exist_ok=True)"
+
+      - >-
+        python -m spacy evaluate
+        training/mbert-crf/model-best/
+        corpus/dev.spacy
+        --output metrics/mbert-crf-dev.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+      - >-
+        python -m spacy evaluate
+        training/mbert-crf/model-best/
+        corpus/test.spacy
+        --output metrics/mbert-crf-test.json
+        --code transformer_components.py
+        --gpu-id ${vars.gpu_id}
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+    outputs:
+      - training/mbert-crf/
+      - metrics/mbert-crf-dev.json
+      - metrics/mbert-crf-test.json
